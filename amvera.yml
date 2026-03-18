@@ -5,6 +5,6 @@ meta:
     version: 20
 
 build:
-  additionalCommands: printenv | grep VITE_ > .env && npm run build
+  additionalCommands: (printenv | grep VITE_ > .env || true) && npm run build
   artifacts:
     "dist/*": /
