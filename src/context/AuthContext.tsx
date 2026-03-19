@@ -112,8 +112,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const isSameUserSession = currentUserIdRef.current === nextSession.user.id;
       const hasResolvedRole = Boolean(currentRoleRef.current);
 
-      // Supabase may emit SIGNED_IN or TOKEN_REFRESHED again when the tab becomes active.
-      // For an already initialized session we keep the current UI intact.
       if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') && isSameUserSession && hasResolvedRole) {
         setIsAuthLoading(false);
         return;
@@ -142,8 +140,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signUp = useCallback(
-    async (email: string, password: string, role: Role, adminInviteCode?: string) =>
-      signUpWithPassword(email, password, role, adminInviteCode),
+    async (email: string, password: string) => signUpWithPassword(email, password),
     []
   );
 

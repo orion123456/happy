@@ -18,15 +18,11 @@ export function canDeleteGift(role: Role | null): boolean {
 }
 
 export function canReserveGift(role: Role | null, gift: Gift): boolean {
-  if (!role) {
-    return false;
-  }
-
   if (gift.is_reserved) {
     return false;
   }
 
-  return role === 'administrator' || role === 'user';
+  return role === null;
 }
 
 export function canUnreserveGift(role: Role | null): boolean {

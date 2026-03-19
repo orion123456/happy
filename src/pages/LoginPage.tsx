@@ -1,7 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ADMIN_SIGNUP_CODE } from '../constants/auth';
 import { useAuth } from '../hooks/useAuth';
-import type { Role } from '../types/auth';
 
 type AuthMode = 'login' | 'register';
 
@@ -13,7 +11,6 @@ export function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [selectedRole, setSelectedRole] = useState<Role>('user');
 
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -60,7 +57,6 @@ export function LoginPage() {
         setError('Пароли не совпадают.');
         return;
       }
-
     }
 
     setIsSubmitting(true);
@@ -69,12 +65,7 @@ export function LoginPage() {
       if (mode === 'login') {
         await signIn(email.trim(), password);
       } else {
-        await signUp(
-          email.trim(),
-          password,
-          selectedRole,
-          selectedRole === 'administrator' ? ADMIN_SIGNUP_CODE : undefined
-        );
+        await signUp(email.trim(), password);
       }
     } catch (authError) {
       setError(
@@ -144,31 +135,17 @@ export function LoginPage() {
           </label>
 
           {isRegisterMode ? (
-            <>
-              <label className="form-field">
-                <span>Подтверждение пароля</span>
-                <input
-                  type="password"
-                  value={confirmPassword}
-                  onChange={(event) => setConfirmPassword(event.target.value)}
-                  placeholder="Повторите пароль"
-                  autoComplete="new-password"
-                  disabled={isSubmitting}
-                />
-              </label>
-
-              <label className="form-field">
-                <span>Роль</span>
-                <select
-                  value={selectedRole}
-                  onChange={(event) => setSelectedRole(event.target.value as Role)}
-                  disabled={isSubmitting}
-                >
-                  <option value="user">Пользователь</option>
-                  <option value="administrator">Администратор</option>
-                </select>
-              </label>
-            </>
+            <label className="form-field">
+              <span>Подтверждение пароля</span>
+              <input
+                type="password"
+                value={confirmPassword}
+                onChange={(event) => setConfirmPassword(event.target.value)}
+                placeholder="Повторите пароль"
+                autoComplete="new-password"
+                disabled={isSubmitting}
+              />
+            </label>
           ) : null}
 
           {error ? <p className="auth-error">{error}</p> : null}

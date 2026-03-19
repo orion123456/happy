@@ -1,3 +1,1 @@
-// Встроенный код для регистрации администратора.
-// Важно: этот подход подходит только для MVP, потому что код виден в клиенте.
-export const ADMIN_SIGNUP_CODE = 'gift-master-2026';
+// Invite code is no longer required — every registered user becomes an administrator of their own wishlist.

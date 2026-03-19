@@ -4,7 +4,7 @@ import { GiftCard } from './GiftCard';
 
 interface GiftGridProps {
   gifts: Gift[];
-  role: Role;
+  role: Role | null;
   actionLoading: Record<string, boolean>;
   onReserve: (gift: Gift) => void;
   onUnreserve: (gift: Gift) => void;

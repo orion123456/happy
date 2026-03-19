@@ -10,12 +10,7 @@ export interface AuthContextValue {
   isAuthLoading: boolean;
   authError: string | null;
   signIn: (email: string, password: string) => Promise<void>;
-  signUp: (
-    email: string,
-    password: string,
-    role: Role,
-    adminInviteCode?: string
-  ) => Promise<void>;
+  signUp: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
 }

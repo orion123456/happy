@@ -1,10 +1,8 @@
 import type { Profile, Role } from '../types/auth';
 import { supabase } from './supabaseClient';
 
-const ROLES: Role[] = ['administrator', 'user'];
-
 function isRole(value: string): value is Role {
-  return ROLES.includes(value as Role);
+  return value === 'administrator';
 }
 
 function mapAuthErrorMessage(message: string): string {
@@ -44,21 +42,10 @@ export async function signInWithPassword(email: string, password: string): Promi
   }
 }
 
-export async function signUpWithPassword(
-  email: string,
-  password: string,
-  role: Role,
-  adminInviteCode?: string
-): Promise<void> {
+export async function signUpWithPassword(email: string, password: string): Promise<void> {
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
-    options: {
-      data: {
-        requested_role: role,
-        admin_invite_code: role === 'administrator' ? adminInviteCode?.trim() ?? '' : '',
-      },
-    },
   });
 
   if (error) {

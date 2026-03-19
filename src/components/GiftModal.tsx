@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
-import type { Gift, GiftFormValues, ResolvedGiftProduct } from '../types/gift';
-import { extractWildberriesProductId, isWildberriesUrl, normalizeWildberriesUrl } from '../utils/wildberries';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { Gift, GiftFormValues } from '../types/gift';
+import { uploadGiftImage, validateImageFile } from '../services/storageApi';
+
+type ImageSource = 'url' | 'file';
 
 interface GiftModalProps {
   isOpen: boolean;
@@ -8,35 +10,26 @@ interface GiftModalProps {
   isSaving: boolean;
   onClose: () => void;
   onSubmit: (values: GiftFormValues) => Promise<void>;
-  onResolveProduct: (productUrl: string) => Promise<ResolvedGiftProduct>;
 }
 
 const defaultFormValues: GiftFormValues = {
-  productUrl: '',
   title: '',
+  productUrl: '',
   imageUrl: '',
   price: '',
-  productId: '',
-  marketplace: 'wildberries',
-  detailsSource: 'manual',
 };
 
-export function GiftModal({
-  isOpen,
-  initialGift,
-  isSaving,
-  onClose,
-  onSubmit,
-  onResolveProduct,
-}: GiftModalProps) {
+export function GiftModal({ isOpen, initialGift, isSaving, onClose, onSubmit }: GiftModalProps) {
   const [values, setValues] = useState<GiftFormValues>(defaultFormValues);
-  const [errors, setErrors] = useState<Partial<Record<'productUrl' | 'title' | 'imageUrl' | 'price', string>>>({});
-  const [resolveError, setResolveError] = useState<string | null>(null);
-  const [isResolving, setIsResolving] = useState(false);
-  const [hasTriedResolve, setHasTriedResolve] = useState(false);
+  const [errors, setErrors] = useState<Partial<Record<keyof GiftFormValues, string>>>({});
+  const [imageSource, setImageSource] = useState<ImageSource>('file');
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [fileName, setFileName] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const modalTitle = useMemo(() => (initialGift ? 'Редактировать подарок' : 'Добавить подарок'), [initialGift]);
-  const showDetailsFields = Boolean(initialGift) || hasTriedResolve;
+  const isBusy = isSaving || isUploading;
 
   useEffect(() => {
     if (!isOpen) {
@@ -45,58 +38,81 @@ export function GiftModal({
 
     if (initialGift) {
       setValues({
-        productUrl: initialGift.product_url,
         title: initialGift.title,
+        productUrl: initialGift.product_url,
         imageUrl: initialGift.image_url,
         price: initialGift.price?.toString() ?? '',
-        productId: initialGift.product_id ?? extractWildberriesProductId(initialGift.product_url) ?? '',
-        marketplace: initialGift.marketplace,
-        detailsSource: initialGift.details_source,
       });
-      setHasTriedResolve(true);
+      setImageSource('url');
     } else {
       setValues(defaultFormValues);
-      setHasTriedResolve(false);
+      setImageSource('file');
     }
 
     setErrors({});
-    setResolveError(null);
-    setIsResolving(false);
+    setUploadError(null);
+    setFileName(null);
+    setIsUploading(false);
   }, [initialGift, isOpen]);
+
+  const handleFileChange = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+
+    if (!file) {
+      return;
+    }
+
+    const validationError = validateImageFile(file);
+
+    if (validationError) {
+      setUploadError(validationError);
+      return;
+    }
+
+    setIsUploading(true);
+    setUploadError(null);
+    setFileName(file.name);
+
+    try {
+      const publicUrl = await uploadGiftImage(file);
+      setValues((prev) => ({ ...prev, imageUrl: publicUrl }));
+      setErrors((prev) => ({ ...prev, imageUrl: undefined }));
+    } catch (error) {
+      setUploadError(error instanceof Error ? error.message : 'Не удалось загрузить изображение.');
+      setFileName(null);
+    } finally {
+      setIsUploading(false);
+
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  }, []);
 
   if (!isOpen) {
     return null;
   }
 
   const validate = () => {
-    const nextErrors: Partial<Record<'productUrl' | 'title' | 'imageUrl' | 'price', string>> = {};
-    const normalizedUrl = normalizeWildberriesUrl(values.productUrl);
-    const productId = values.productId.trim() || extractWildberriesProductId(normalizedUrl);
-    const parsedPrice = Number(values.price.replace(',', '.'));
-
-    if (!normalizedUrl) {
-      nextErrors.productUrl = 'Вставьте ссылку на товар Wildberries.';
-    } else if (!isWildberriesUrl(normalizedUrl)) {
-      nextErrors.productUrl = 'Поддерживаются только ссылки на Wildberries.';
-    } else {
-      try {
-        new URL(normalizedUrl);
-      } catch {
-        nextErrors.productUrl = 'Укажите корректную ссылку на товар.';
-      }
-    }
-
-    if (!showDetailsFields) {
-      nextErrors.productUrl = nextErrors.productUrl ?? 'Сначала попробуйте подтянуть данные по ссылке.';
-    }
+    const nextErrors: Partial<Record<keyof GiftFormValues, string>> = {};
 
     if (!values.title.trim()) {
       nextErrors.title = 'Введите название подарка.';
     }
 
+    if (values.productUrl.trim()) {
+      try {
+        new URL(values.productUrl.trim());
+      } catch {
+        nextErrors.productUrl = 'Укажите корректную ссылку на товар.';
+      }
+    }
+
     if (!values.imageUrl.trim()) {
-      nextErrors.imageUrl = 'Укажите URL изображения товара.';
-    } else {
+      nextErrors.imageUrl = imageSource === 'file'
+        ? 'Загрузите изображение подарка.'
+        : 'Укажите URL изображения товара.';
+    } else if (imageSource === 'url') {
       try {
         new URL(values.imageUrl.trim());
       } catch {
@@ -104,68 +120,16 @@ export function GiftModal({
       }
     }
 
-    if (!values.price.trim()) {
-      nextErrors.price = 'Укажите цену товара.';
-    } else if (!Number.isFinite(parsedPrice) || parsedPrice <= 0) {
-      nextErrors.price = 'Цена должна быть больше нуля.';
-    }
+    if (values.price.trim()) {
+      const parsedPrice = Number(values.price.replace(',', '.'));
 
-    if (!productId) {
-      nextErrors.productUrl = nextErrors.productUrl ?? 'Не удалось определить ID товара из ссылки.';
+      if (!Number.isFinite(parsedPrice) || parsedPrice <= 0) {
+        nextErrors.price = 'Цена должна быть больше нуля.';
+      }
     }
 
     setErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
-  };
-
-  const handleResolve = async () => {
-    const normalizedUrl = normalizeWildberriesUrl(values.productUrl);
-    setHasTriedResolve(true);
-
-    if (!normalizedUrl || !isWildberriesUrl(normalizedUrl)) {
-      setErrors((prev) => ({
-        ...prev,
-        productUrl: 'Поддерживаются только ссылки на Wildberries.',
-      }));
-      return;
-    }
-
-    setIsResolving(true);
-    setResolveError(null);
-    setErrors((prev) => ({ ...prev, productUrl: undefined }));
-
-    try {
-      const result = await onResolveProduct(normalizedUrl);
-
-      setValues((prev) => ({
-        ...prev,
-        productUrl: normalizedUrl,
-        title: result.title || prev.title,
-        imageUrl: result.imageUrl || prev.imageUrl,
-        price: result.price !== null ? String(result.price) : prev.price,
-        productId: result.productId || prev.productId,
-        marketplace: 'wildberries',
-        detailsSource:
-          result.title && result.imageUrl && result.price !== null
-            ? 'wildberries'
-            : 'manual',
-      }));
-
-      if (!result.title || !result.imageUrl || result.price === null) {
-        setResolveError('Часть данных не удалось подтянуть. Дополните поля вручную.');
-      }
-    } catch (error) {
-      setResolveError(error instanceof Error ? error.message : 'Не удалось подтянуть данные по ссылке.');
-      setValues((prev) => ({
-        ...prev,
-        productUrl: normalizedUrl,
-        productId: prev.productId || extractWildberriesProductId(normalizedUrl) || '',
-        marketplace: 'wildberries',
-        detailsSource: 'manual',
-      }));
-    } finally {
-      setIsResolving(false);
-    }
   };
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -177,10 +141,17 @@ export function GiftModal({
 
     await onSubmit({
       ...values,
-      productUrl: normalizeWildberriesUrl(values.productUrl),
-      productId: values.productId.trim() || extractWildberriesProductId(values.productUrl) || '',
-      price: values.price.replace(',', '.'),
+      productUrl: values.productUrl.trim(),
+      price: values.price.trim() ? values.price.replace(',', '.') : '',
     });
+  };
+
+  const handleImageSourceChange = (source: ImageSource) => {
+    setImageSource(source);
+    setValues((prev) => ({ ...prev, imageUrl: '' }));
+    setErrors((prev) => ({ ...prev, imageUrl: undefined }));
+    setUploadError(null);
+    setFileName(null);
   };
 
   return (
@@ -190,100 +161,114 @@ export function GiftModal({
 
         <form onSubmit={handleSubmit} className="modal-form">
           <label className="form-field">
-            <span>Ссылка на товар Wildberries</span>
+            <span>Название подарка</span>
+            <input
+              type="text"
+              value={values.title}
+              onChange={(event) => setValues((prev) => ({ ...prev, title: event.target.value }))}
+              placeholder="Например, кофемашина для именинника"
+              disabled={isBusy}
+            />
+            {errors.title ? <small>{errors.title}</small> : null}
+          </label>
+
+          <label className="form-field">
+            <span>Ссылка на товар</span>
             <input
               type="url"
               value={values.productUrl}
-              onChange={(event) =>
-                setValues((prev) => ({
-                  ...prev,
-                  productUrl: event.target.value,
-                }))
-              }
-              placeholder="https://www.wildberries.ru/catalog/..."
-              disabled={isSaving || isResolving}
+              onChange={(event) => setValues((prev) => ({ ...prev, productUrl: event.target.value }))}
+              placeholder="https://..."
+              disabled={isBusy}
             />
             {errors.productUrl ? <small>{errors.productUrl}</small> : null}
           </label>
 
-          <div className="modal-inline-actions">
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={() => void handleResolve()}
-              disabled={isSaving || isResolving}
-            >
-              {isResolving ? 'Подтягиваем...' : 'Подтянуть данные'}
-            </button>
-            <p className="form-hint">Поддерживаются только ссылки на карточки Wildberries.</p>
-          </div>
+          <div className="form-field">
+            <span>Изображение</span>
+            <div className="image-source-toggle">
+              <button
+                type="button"
+                className={`image-source-btn ${imageSource === 'file' ? 'active' : ''}`}
+                onClick={() => handleImageSourceChange('file')}
+                disabled={isBusy}
+              >
+                Загрузить файл
+              </button>
+              <button
+                type="button"
+                className={`image-source-btn ${imageSource === 'url' ? 'active' : ''}`}
+                onClick={() => handleImageSourceChange('url')}
+                disabled={isBusy}
+              >
+                Вставить ссылку
+              </button>
+            </div>
 
-          {resolveError ? <div className="form-banner form-banner-warning">{resolveError}</div> : null}
-
-          {showDetailsFields ? (
-            <>
-              <label className="form-field">
-                <span>Название подарка</span>
+            {imageSource === 'file' ? (
+              <div className="image-upload-area">
                 <input
-                  type="text"
-                  value={values.title}
-                  onChange={(event) => setValues((prev) => ({ ...prev, title: event.target.value }))}
-                  placeholder="Название подтянется автоматически или введите вручную"
-                  disabled={isSaving}
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/gif"
+                  onChange={(event) => void handleFileChange(event)}
+                  disabled={isBusy}
+                  className="image-file-input"
+                  id="gift-image-upload"
                 />
-                {errors.title ? <small>{errors.title}</small> : null}
-              </label>
-
-              <label className="form-field">
-                <span>URL изображения</span>
-                <input
-                  type="url"
-                  value={values.imageUrl}
-                  onChange={(event) => setValues((prev) => ({ ...prev, imageUrl: event.target.value }))}
-                  placeholder="Ссылка на изображение товара"
-                  disabled={isSaving}
-                />
-                {errors.imageUrl ? <small>{errors.imageUrl}</small> : null}
-              </label>
-
-              <div className="modal-grid">
-                <label className="form-field">
-                  <span>Цена, ₽</span>
-                  <input
-                    type="number"
-                    min="1"
-                    step="0.01"
-                    value={values.price}
-                    onChange={(event) => setValues((prev) => ({ ...prev, price: event.target.value }))}
-                    placeholder="Например, 4990"
-                    disabled={isSaving}
-                  />
-                  {errors.price ? <small>{errors.price}</small> : null}
-                </label>
-
-                <label className="form-field">
-                  <span>ID товара</span>
-                  <input type="text" value={values.productId} readOnly disabled />
+                <label htmlFor="gift-image-upload" className="image-upload-label">
+                  {isUploading
+                    ? 'Загружаем...'
+                    : fileName
+                      ? fileName
+                      : values.imageUrl
+                        ? 'Изображение загружено'
+                        : 'JPG, PNG, WEBP или GIF до 5 МБ'}
                 </label>
               </div>
+            ) : (
+              <input
+                type="url"
+                value={values.imageUrl}
+                onChange={(event) => setValues((prev) => ({ ...prev, imageUrl: event.target.value }))}
+                placeholder="https://..."
+                disabled={isBusy}
+              />
+            )}
 
-              {values.imageUrl ? (
-                <div className="gift-preview">
-                  <img src={values.imageUrl} alt={values.title || 'Предпросмотр товара'} />
-                  <div className="gift-preview-meta">
-                    <strong>{values.title || 'Название появится здесь'}</strong>
-                    <span>Wildberries</span>
-                  </div>
-                </div>
-              ) : null}
-            </>
+            {uploadError ? <small>{uploadError}</small> : null}
+            {errors.imageUrl ? <small>{errors.imageUrl}</small> : null}
+          </div>
+
+          <label className="form-field">
+            <span>Цена, ₽ <span className="form-optional">необязательно</span></span>
+            <input
+              type="number"
+              min="1"
+              step="0.01"
+              value={values.price}
+              onChange={(event) => setValues((prev) => ({ ...prev, price: event.target.value }))}
+              placeholder="Например, 4990"
+              disabled={isBusy}
+            />
+            {errors.price ? <small>{errors.price}</small> : null}
+          </label>
+
+          {values.imageUrl ? (
+            <div className="gift-preview">
+              <img src={values.imageUrl} alt={values.title || 'Предпросмотр товара'} />
+              <div className="gift-preview-meta">
+                <strong>{values.title || 'Название появится здесь'}</strong>
+                {values.price ? <span>{values.price} ₽</span> : null}
+              </div>
+            </div>
           ) : null}
 
           <div className="modal-actions">
-            <button type="button" className="btn btn-secondary" onClick={onClose} disabled={isSaving || isResolving}>
+            <button type="button" className="btn btn-secondary" onClick={onClose} disabled={isBusy}>
               Отмена
             </button>
-            <button type="submit" className="btn btn-primary" disabled={isSaving || isResolving}>
+            <button type="submit" className="btn btn-primary" disabled={isBusy}>
               {isSaving ? 'Сохранение...' : 'Сохранить'}
             </button>
           </div>

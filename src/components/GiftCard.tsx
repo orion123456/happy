@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import type { Role } from '../types/auth';
 import type { Gift } from '../types/gift';
-import { formatGiftPrice } from '../utils/wildberries';
+import { formatGiftPrice } from '../utils/format';
 import { canDeleteGift, canEditGift, canReserveGift, canUnreserveGift } from '../utils/permissions';
 
 interface GiftCardProps {
   gift: Gift;
-  role: Role;
+  role: Role | null;
   isLoading: boolean;
   onReserve: (gift: Gift) => void;
   onUnreserve: (gift: Gift) => void;
@@ -29,6 +29,13 @@ export function GiftCard({
   const canEdit = canEditGift(role);
   const canDelete = canDeleteGift(role);
   const formattedPrice = formatGiftPrice(gift.price, gift.currency);
+  const isAdminView = role === 'administrator';
+
+  const overlayText = gift.is_reserved
+    ? isAdminView && gift.reserved_by
+      ? `Забронировал(а): ${gift.reserved_by}`
+      : 'Уже зарезервировано'
+    : null;
 
   return (
     <article className="gift-card">
@@ -43,23 +50,28 @@ export function GiftCard({
         ) : (
           <div className="gift-image-fallback">Изображение недоступно</div>
         )}
-        {gift.is_reserved ? <div className="gift-overlay">Уже зарезервировано</div> : null}
+        {overlayText ? <div className="gift-overlay">{overlayText}</div> : null}
       </div>
 
       <div className="gift-content">
         <h3>{gift.title}</h3>
 
         <div className="gift-meta-row">
-          <span className="gift-marketplace">{gift.marketplace === 'wildberries' ? 'Wildberries' : gift.marketplace}</span>
           {formattedPrice ? <strong className="gift-price">{formattedPrice}</strong> : null}
         </div>
 
-        <a href={gift.product_url} target="_blank" rel="noreferrer noopener" className="product-link">
-          Открыть товар
-        </a>
+        {gift.product_url ? (
+          <a href={gift.product_url} target="_blank" rel="noreferrer noopener" className="product-link">
+            Открыть товар
+          </a>
+        ) : null}
 
         <p className={`gift-status ${gift.is_reserved ? 'reserved' : 'free'}`}>
-          {gift.is_reserved ? 'Зарезервировано' : 'Свободен'}
+          {gift.is_reserved
+            ? isAdminView && gift.reserved_by
+              ? `Зарезервировано · ${gift.reserved_by}`
+              : 'Зарезервировано'
+            : 'Свободен'}
         </p>
 
         <div className="gift-actions">
